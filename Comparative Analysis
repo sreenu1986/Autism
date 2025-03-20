@@ -1,0 +1,110 @@
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from tensorflow.keras import layers, models
+
+# Load dataset (replace with actual dataset paths)
+def load_dataset(filepath):
+    data = pd.read_csv(filepath)
+    X = data.drop(columns=['Class'])  # Features
+    y = data['Class']  # Labels (ASD-positive or non-ASD)
+    return X, y
+
+# Define the ALROH model (CNN-LSTM)
+def create_alroh_model(input_shape, num_classes):
+    # CNN for feature extraction
+    cnn_model = models.Sequential()
+    cnn_model.add(layers.Conv1D(32, kernel_size=3, activation='relu', input_shape=input_shape))
+    cnn_model.add(layers.MaxPooling1D(pool_size=2))
+    cnn_model.add(layers.Conv1D(64, kernel_size=3, activation='relu'))
+    cnn_model.add(layers.MaxPooling1D(pool_size=2))
+    cnn_model.add(layers.Flatten())
+
+    # LSTM for sequential learning
+    lstm_model = models.Sequential()
+    lstm_model.add(layers.LSTM(128, return_sequences=True, input_shape=input_shape))
+    lstm_model.add(layers.Dropout(0.5))
+    lstm_model.add(layers.LSTM(64, return_sequences=False))
+    lstm_model.add(layers.Dropout(0.5))
+
+    # Fully Connected Layer
+    combined_model = models.Sequential()
+    combined_model.add(cnn_model)
+    combined_model.add(lstm_model)
+    combined_model.add(layers.Dense(64, activation='relu'))
+    combined_model.add(layers.Dropout(0.5))
+    combined_model.add(layers.Dense(num_classes, activation='softmax'))
+
+    return combined_model
+
+# Evaluate model performance
+def evaluate_model(model, X_test, y_test):
+    y_pred = model.predict(X_test)
+    y_pred = np.argmax(y_pred, axis=1)  # Convert probabilities to class labels
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, average='weighted')
+    recall = recall_score(y_test, y_pred, average='weighted')
+    f1 = f1_score(y_test, y_pred, average='weighted')
+    return accuracy, precision, recall, f1
+
+# Main function to evaluate ALROH on a dataset
+def evaluate_alroh(dataset_name, filepath):
+    print(f"Evaluating ALROH on {dataset_name} dataset...")
+    # Load dataset
+    X, y = load_dataset(filepath)
+    # Split dataset into train and test sets
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    # Reshape data for CNN-LSTM input
+    X_train = X_train.values.reshape((X_train.shape[0], X_train.shape[1], 1))
+    X_test = X_test.values.reshape((X_test.shape[0], X_test.shape[1], 1))
+    # Create and compile ALROH model
+    input_shape = (X_train.shape[1], 1)
+    num_classes = len(np.unique(y))
+    model = create_alroh_model(input_shape, num_classes)
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    # Train the model
+    model.fit(X_train, y_train, epochs=10, batch_size=32, validation_data=(X_test, y_test), verbose=1)
+    # Evaluate the model
+    accuracy, precision, recall, f1 = evaluate_model(model, X_test, y_test)
+    print(f"Results for {dataset_name}:")
+    print(f"  Accuracy: {accuracy:.4f}")
+    print(f"  Precision: {precision:.4f}")
+    print(f"  Recall: {recall:.4f}")
+    print(f"  F1-Score: {f1:.4f}")
+    return accuracy, precision, recall, f1
+
+# Define dataset paths (replace with actual paths)
+datasets = {
+    'Toddler Dataset 1': 'path/to/toddler1_dataset.csv',
+    'Toddler Dataset 2': 'path/to/toddler2_dataset.csv',
+    'Merged Toddler Dataset': 'path/to/merged_toddler_dataset.csv',
+    'Merged Dataset': 'path/to/merged_dataset.csv'
+}
+
+# Evaluate ALROH on all datasets
+results = {}
+for name, filepath in datasets.items():
+    results[name] = evaluate_alroh(name, filepath)
+
+# Comparative study with existing approaches
+comparative_results = {
+    'ALROH': results['Toddler Dataset 1'],
+    'SVM': (0.98, 0.98, 0.44, 0.60),  # Example values from literature
+    'RF': (0.959, 0.96, 0.95, 0.95),  # Example values from literature
+    'L-R': (0.9623, 0.96, 0.96, 0.96),  # Example values from literature
+    'LR': (0.943, 0.94, 0.94, 0.94),  # Example values from literature
+    'CNN-LSTM-PSO': (0.9964, 0.96, 0.94, 0.91),  # Example values from literature
+    'RF-XGB': (0.99, 0.99, 0.99, 0.99),  # Example values from literature
+    'XGB 2.0': (0.99, 0.99, 0.99, 0.99),  # Example values from literature
+    'Stacked Model': (0.9914, 0.9876, 0.9937, 0.9907)  # Example values from literature
+}
+
+# Print comparative results
+print("\nComparative Study Results:")
+for model, metrics in comparative_results.items():
+    print(f"{model}:")
+    print(f"  Accuracy: {metrics[0]:.4f}")
+    print(f"  Precision: {metrics[1]:.4f}")
+    print(f"  Recall: {metrics[2]:.4f}")
+    print(f"  F1-Score: {metrics[3]:.4f}")
