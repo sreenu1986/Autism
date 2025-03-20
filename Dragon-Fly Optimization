@@ -1,0 +1,122 @@
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras import layers, models
+
+# Define the fitness function (accuracy and loss)
+def fitness_function(model, X_train, y_train, X_val, y_val):
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    history = model.fit(X_train, y_train, epochs=5, batch_size=32, validation_data=(X_val, y_val), verbose=0)
+    accuracy = history.history['val_accuracy'][-1]
+    loss = history.history['val_loss'][-1]
+    alpha, beta = 1.0, 0.5  # Balancing coefficients for accuracy and loss
+    fitness = alpha * accuracy - beta * loss
+    return fitness
+
+# Define the Dragonfly Optimization (DFO) algorithm
+class DragonflyOptimization:
+    def __init__(self, num_dragonflies, num_iterations, hyperparameter_ranges, X_train, y_train, X_val, y_val):
+        self.num_dragonflies = num_dragonflies
+        self.num_iterations = num_iterations
+        self.hyperparameter_ranges = hyperparameter_ranges
+        self.X_train = X_train
+        self.y_train = y_train
+        self.X_val = X_val
+        self.y_val = y_val
+        self.best_fitness = -np.inf
+        self.best_hyperparameters = None
+
+    def initialize_population(self):
+        population = []
+        for _ in range(self.num_dragonflies):
+            hyperparameters = {
+                'batch_size': np.random.randint(*self.hyperparameter_ranges['batch_size']),
+                'learning_rate': np.random.uniform(*self.hyperparameter_ranges['learning_rate']),
+                'lstm_units': np.random.randint(*self.hyperparameter_ranges['lstm_units']),
+                'dropout_rate': np.random.uniform(*self.hyperparameter_ranges['dropout_rate']),
+            }
+            population.append(hyperparameters)
+        return population
+
+    def update_position(self, S_i, V_i, P_i, G, w, r1, r2):
+        # Update velocity using Eq. (26)
+        V_i_new = w * V_i + r1 * (P_i - S_i) + r2 * (G - S_i)
+        # Update position using Eq. (19)
+        S_i_new = S_i + V_i_new
+        return S_i_new, V_i_new
+
+    def optimize(self):
+        # Initialize population
+        population = self.initialize_population()
+        velocities = [np.zeros_like(list(hyperparameters.values())) for hyperparameters in population]
+
+        for iteration in range(self.num_iterations):
+            print(f"Iteration {iteration + 1}/{self.num_iterations}")
+            for i, dragonfly in enumerate(population):
+                # Create CNN-LSTM model with current hyperparameters
+                model = self.create_cnn_lstm_model(dragonfly)
+                # Evaluate fitness
+                fitness = fitness_function(model, self.X_train, self.y_train, self.X_val, self.y_val)
+                # Update best solution
+                if fitness > self.best_fitness:
+                    self.best_fitness = fitness
+                    self.best_hyperparameters = dragonfly
+                # Update position and velocity
+                P_i = np.array(list(dragonfly.values()))  # Best local solution
+                G = np.array(list(self.best_hyperparameters.values()))  # Best global solution
+                w = 0.7  # Inertia weight
+                r1, r2 = np.random.rand(), np.random.rand()  # Random coefficients
+                S_i_new, V_i_new = self.update_position(np.array(list(dragonfly.values())), velocities[i], P_i, G, w, r1, r2)
+                # Update dragonfly's hyperparameters
+                for j, key in enumerate(dragonfly.keys()):
+                    dragonfly[key] = S_i_new[j]
+                velocities[i] = V_i_new
+
+        return self.best_hyperparameters
+
+    def create_cnn_lstm_model(self, hyperparameters):
+        # Define CNN-LSTM model with given hyperparameters
+        cnn_input_shape = (128, 128, 1)
+        lstm_input_shape = (100, 128)
+        num_classes = 2
+
+        # CNN for feature extraction
+        cnn_model = models.Sequential()
+        cnn_model.add(layers.Conv2D(32, (3, 3), activation='relu', input_shape=cnn_input_shape))
+        cnn_model.add(layers.MaxPooling2D((2, 2)))
+        cnn_model.add(layers.Conv2D(64, (3, 3), activation='relu'))
+        cnn_model.add(layers.MaxPooling2D((2, 2)))
+        cnn_model.add(layers.Conv2D(128, (3, 3), activation='relu'))
+        cnn_model.add(layers.MaxPooling2D((2, 2)))
+        cnn_model.add(layers.Flatten())
+
+        # LSTM for sequential learning
+        lstm_model = models.Sequential()
+        lstm_model.add(layers.TimeDistributed(cnn_model, input_shape=lstm_input_shape))
+        lstm_model.add(layers.LSTM(hyperparameters['lstm_units'], return_sequences=False))
+        lstm_model.add(layers.Dropout(hyperparameters['dropout_rate']))
+        lstm_model.add(layers.Dense(num_classes, activation='softmax'))
+
+        return lstm_model
+
+# Example usage
+# Define hyperparameter ranges
+hyperparameter_ranges = {
+    'batch_size': (16, 64),
+    'learning_rate': (0.0001, 0.01),
+    'lstm_units': (64, 256),
+    'dropout_rate': (0.2, 0.5),
+}
+
+# Example data (replace with actual data)
+X_train = np.random.rand(1000, 100, 128, 1)  # 1000 samples, 100 time steps, 128 features
+y_train = np.random.randint(0, 2, 1000)      # Binary labels for 1000 samples
+X_val = np.random.rand(200, 100, 128, 1)     # Validation data
+y_val = np.random.randint(0, 2, 200)         # Validation labels
+
+# Initialize DFO
+dfo = DragonflyOptimization(num_dragonflies=10, num_iterations=20, hyperparameter_ranges=hyperparameter_ranges,
+                            X_train=X_train, y_train=y_train, X_val=X_val, y_val=y_val)
+
+# Run optimization
+best_hyperparameters = dfo.optimize()
+print("Best Hyperparameters:", best_hyperparameters)
